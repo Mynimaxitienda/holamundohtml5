@@ -1,0 +1,6 @@
+{
+  "name": "Hola Mundo HTML5",
+  "description": "Una aplicación simple y elegante que muestra un saludo clásico con diseño moderno.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
