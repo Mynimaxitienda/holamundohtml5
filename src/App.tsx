@@ -64,7 +64,7 @@ export default function App() {
               <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-xs text-neutral-400 font-mono">ESTADO: LISTO</span>
             </div>
-            <span className="text-xs text-neutral-400 font-mono">v1.0.0</span>
+            <span className="text-xs text-neutral-400 font-mono">v1.0.1</span>
           </div>
         </motion.div>
       </main>
