@@ -1,0 +1,200 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Funciones Auxiliares de Seguridad
+    // ===============================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Obtener el rol del usuario desde su perfil, con fallback de seguridad para el desarrollador
+    function getRole() {
+      let hasEmail = request.auth != null && request.auth.token.keys().hasAll(['email']);
+      let email = hasEmail ? request.auth.token.email : '';
+      let isDev = email == 'devluisluzardo@gmail.com' || 
+                  email == 'gmynitiendasmaxi@gmail.com' ||
+                  email == 'tiendawebapps@gmail.com';
+      let path = /databases/$(database)/documents/profile/$(request.auth.uid);
+      return isDev ? 'admin' : (
+        exists(path) && get(path).data.keys().hasAll(['role']) ? get(path).data.role : 'usuario'
+      );
+    }
+
+    function hasCustomerCode(userCode) {
+      let path = /databases/$(database)/documents/profile/$(request.auth.uid);
+      return exists(path) && 
+             get(path).data.keys().hasAll(['customerCode']) && 
+             get(path).data.customerCode == userCode;
+    }
+
+    function hasRole(role) {
+      return isSignedIn() && getRole() == role;
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function isTienda() {
+      return hasRole('tienda');
+    }
+
+    function isUsuario() {
+      return hasRole('usuario');
+    }
+
+    // ===============================================================
+    // Reglas por Colección
+    // ===============================================================
+
+    // Roles del Sistema (solo lectura para autenticados, escritura para admin)
+    match /roles/{roleId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Perfiles de Usuario
+    match /profile/{userId} {
+      // Cualquier usuario autenticado puede leer su propio perfil.
+      // Administrador y Tienda pueden leer todos los perfiles para gestión.
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isTienda());
+
+      // Creación del propio perfil: solo se puede crear con rol 'usuario' por defecto,
+      // a menos que sea un administrador quien lo cree.
+      allow create: if isSignedIn() && (
+        isAdmin() || 
+        (request.auth.uid == userId && (
+          !request.resource.data.keys().hasAll(['role']) || 
+          request.resource.data.role == 'usuario'
+        ))
+      );
+
+      // Actualización de perfil: solo el administrador puede cambiar el rol de un usuario.
+      // Los usuarios normales pueden editar sus propios campos de perfil pero no cambiar su rol.
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (request.auth.uid == userId && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role']))
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // Estructura de Usuarios y BonoFlow
+    // `/usuarios/{adminUid}/bonoflow/{userCode}`
+    match /usuarios/{adminUid}/{allPaths=**} {
+      // Administrador y Tienda tienen acceso global.
+      // Un Usuario puede acceder solo a su propia rama de bonos y códigos (donde adminUid es su propio UID).
+      allow read, write: if isSignedIn() && (
+        isAdmin() || 
+        isTienda() || 
+        request.auth.uid == adminUid
+      );
+    }
+
+    match /usuarios/{adminUid}/bonoflow/{userCode} {
+      allow read: if isSignedIn() && (
+        isAdmin() || 
+        isTienda() || 
+        request.auth.uid == adminUid ||
+        hasCustomerCode(userCode)
+      );
+      allow write: if isSignedIn() && (
+        isAdmin() || 
+        isTienda() || 
+        request.auth.uid == adminUid ||
+        hasCustomerCode(userCode)
+      );
+
+      match /{allPaths=**} {
+        allow read: if isSignedIn() && (
+          isAdmin() || 
+          isTienda() || 
+          request.auth.uid == adminUid ||
+          hasCustomerCode(userCode)
+        );
+        allow write: if isSignedIn() && (
+          isAdmin() || 
+          isTienda() || 
+          request.auth.uid == adminUid ||
+          hasCustomerCode(userCode)
+        );
+      }
+    }
+
+    // Soporte para acceso a bonoflow como colección de nivel superior (Top-Level)
+    match /bonoflow/{userCode} {
+      allow read, write: if isSignedIn() && (
+        isAdmin() || 
+        isTienda() || 
+        hasCustomerCode(userCode)
+      );
+
+      match /{allPaths=**} {
+        allow read, write: if isSignedIn() && (
+          isAdmin() || 
+          isTienda() || 
+          hasCustomerCode(userCode)
+        );
+      }
+    }
+
+    // Colección de Registro Global de Bonos (registros_bonos)
+    match /registros_bonos/{bonoId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Inventario y Datos de la Tienda (Colecciones 'stores' y 'tienda')
+    match /stores/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    match /tienda/{allPaths=**} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
+    }
+
+    // Colección de prueba de conexión
+    match /test/connection {
+      allow read: if isSignedIn();
+    }
+
+    // Colección de Registro Global de Códigos (regusuariosnew)
+    match /regusuariosnew/{docId} {
+      allow read: if isSignedIn() && (
+        isAdmin() || 
+        (resource.data.keys().hasAll(['email']) && resource.data.email == request.auth.token.email) ||
+        (resource.data.keys().hasAll(['createdBy']) && resource.data.createdBy == request.auth.uid)
+      );
+      
+      allow create: if isSignedIn() && (
+        isAdmin() || 
+        request.resource.data.email == request.auth.token.email
+      );
+
+      allow update: if isSignedIn() && (
+        isAdmin() || 
+        (resource.data.keys().hasAll(['email']) && resource.data.email == request.auth.token.email) ||
+        (!resource.data.keys().hasAll(['email']) && resource.data.createdBy == request.auth.uid)
+      );
+
+      allow delete: if isAdmin();
+    }
+
+    // Colección de Usuarios del sistema general
+    match /users/{allPaths=**} {
+      allow read, write: if isSignedIn() && (isAdmin() || isTienda());
+    }
+
+    // ===============================================================
+    // Regla de Cierre de Seguridad por Defecto (Default Deny)
+    // ===============================================================
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
