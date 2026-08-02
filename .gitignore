@@ -8,3 +8,10 @@ coverage/
 !.env.example
 *.sh
 *.rules
+config.md
+config/
+test
+*.test
+RECONSTRUCTION_PROMPT.md
+blue-print.md
+blueprint.md
